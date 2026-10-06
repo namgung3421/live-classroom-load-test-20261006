@@ -126,7 +126,8 @@ func publisher(c credential,url string)(*lksdk.Room,error){
  audio,err:=provider.CreateAudioLooper()
  if err!=nil{room.Disconnect();return nil,err}
  audioTrack,err:=lksdk.NewLocalTrack(audio.Codec())
- if err==nil{err=audioTrack.StartWrite(audio,nil)}
+ observation:=&audioObservation{};audioObservations=append(audioObservations,observation)
+ if err==nil{audioTrack.OnBind(func(){observation.Binds.Add(1)});err=audioTrack.StartWrite(&observedAudio{SampleProvider:audio,observation:observation},nil)}
  if err==nil{_,err=room.LocalParticipant.PublishTrack(audioTrack,&lksdk.TrackPublicationOptions{Name:"synthetic audio",Source:livekit.TrackSource_MICROPHONE})}
  if err!=nil{room.Disconnect();return nil,fmt.Errorf("audio publish failed (%T)",err)}
  videoTracks,err:=generatedVideoTracks()
@@ -173,7 +174,7 @@ func run() error {
  signals:=make(chan os.Signal,1);signal.Notify(signals,syscall.SIGINT,syscall.SIGTERM);defer signal.Stop(signals)
  report:=func(final bool){
   stats:=make([]receiverSnapshot,0,len(receivers));for _,r:=range receivers{stats=append(stats,r.snapshot())}
-  value:=map[string]any{"at":time.Now().UnixMilli(),"final":final,"publishers":len(publishers),"receivers":stats,"process":processStats()}
+  value:=map[string]any{"at":time.Now().UnixMilli(),"final":final,"publishers":len(publishers),"publisherAudio":audioSnapshots(),"receivers":stats,"process":processStats()}
   encoded,err:=json.Marshal(value);if err!=nil{return}
   // Local monitoring reads fixture metadata through the existing SFU API.
   if len(encoded)<50000{receivers[0].Room.LocalParticipant.SetMetadata(string(encoded))}
