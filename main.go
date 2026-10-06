@@ -32,6 +32,7 @@ type configuration struct {
  Publishers []credential `json:"publishers"`
  Receivers []credential `json:"receivers"`
  Seconds int `json:"seconds"`
+ Shards int `json:"shards"`
 }
 type trackState struct {
  SID string `json:"sid"`
@@ -46,6 +47,7 @@ type trackState struct {
  Active bool `json:"active"`
  Width uint32 `json:"width,omitempty"`
  Height uint32 `json:"height,omitempty"`
+ Source string `json:"source"`
  lastFrameTimestamp uint32
  hasFrame bool
 }
@@ -87,7 +89,7 @@ func newReceiver(c credential, url string) (*receiver, error) {
   ParticipantCallback:lksdk.ParticipantCallback{
    OnTrackSubscriptionFailed:func(_ string,_ *lksdk.RemoteParticipant){r.lock.Lock();r.Failures++;r.lock.Unlock()},
    OnTrackSubscribed:func(track *webrtc.TrackRemote, pub *lksdk.RemoteTrackPublication, _ *lksdk.RemoteParticipant){
-    state:=&trackState{SID:pub.SID(),Kind:track.Kind().String(),SSRC:uint32(track.SSRC()),Active:true}
+    state:=&trackState{SID:pub.SID(),Kind:track.Kind().String(),SSRC:uint32(track.SSRC()),Active:true,Source:pub.Source().String()}
     r.lock.Lock();r.Tracks=append(r.Tracks,state);r.lock.Unlock()
     // Request the full screen and camera layer, regardless of subscription order.
     if track.Kind()==webrtc.RTPCodecTypeVideo {pub.SetVideoDimensions(1920,1080)}
@@ -141,7 +143,7 @@ func publisher(c credential,url string)(*lksdk.Room,error){
  audio,err:=generatedAudio()
  if err!=nil{room.Disconnect();return nil,err}
  audioTrack,err:=lksdk.NewLocalTrack(webrtc.RTPCodecCapability{MimeType:webrtc.MimeTypeOpus,ClockRate:48000,Channels:2})
- observation:=&audioObservation{};audioObservations=append(audioObservations,observation)
+ observation:=&audioObservation{Identity:c.Identity};audioObservations=append(audioObservations,observation)
  if err==nil{audioTrack.OnBind(func(){observation.Binds.Add(1)});err=audioTrack.StartWrite(&observedAudio{SampleProvider:audio,observation:observation},nil)}
  if err==nil{_,err=room.LocalParticipant.PublishTrack(audioTrack,&lksdk.TrackPublicationOptions{Name:"synthetic audio",Source:livekit.TrackSource_MICROPHONE})}
  if err!=nil{room.Disconnect();return nil,fmt.Errorf("audio publish failed (%T)",err)}
@@ -176,6 +178,10 @@ func run() error {
  if !strings.HasPrefix(config.URL,"wss://")||len(config.Publishers)<1||len(config.Publishers)>30||len(config.Receivers)!=len(config.Publishers)||config.Seconds<60||config.Seconds>10800{return fmt.Errorf("invalid bounded load configuration")}
  // Room-scoped tokens remain in process memory and are never printed.
  os.Unsetenv("LIVE_CLASS_LOAD_FIXTURE")
+ shard,err:=strconv.Atoi(os.Getenv("LIVE_CLASS_LOAD_SHARD"));if err!=nil||shard<0||shard>1||config.Shards<1||config.Shards>2{return fmt.Errorf("invalid fixture shard")}
+ if shard>=config.Shards{return nil}
+ from,to:=len(config.Publishers)*shard/config.Shards,len(config.Publishers)*(shard+1)/config.Shards
+ config.Publishers=config.Publishers[from:to];config.Receivers=config.Receivers[from:to]
  publishers:=[]*lksdk.Room{};receivers:=[]*receiver{}
  defer func(){stopping.Store(true);for _,r:=range receivers{r.Room.Disconnect()};for _,r:=range publishers{r.Disconnect()}}()
  for i:=range config.Publishers{
@@ -189,7 +195,7 @@ func run() error {
  signals:=make(chan os.Signal,1);signal.Notify(signals,syscall.SIGINT,syscall.SIGTERM);defer signal.Stop(signals)
  report:=func(final bool){
   stats:=make([]receiverSnapshot,0,len(receivers));for _,r:=range receivers{stats=append(stats,r.snapshot())}
-  value:=map[string]any{"at":time.Now().UnixMilli(),"final":final,"publishers":len(publishers),"publisherAudio":audioSnapshots(),"receivers":stats,"process":processStats()}
+  value:=map[string]any{"at":time.Now().UnixMilli(),"shard":shard,"final":final,"publishers":len(publishers),"publisherAudio":audioSnapshots(),"receivers":stats,"process":processStats()}
   encoded,err:=json.Marshal(value);if err!=nil{return}
   // Local monitoring reads fixture metadata through the existing SFU API.
   if len(encoded)<50000{receivers[0].Room.LocalParticipant.SetMetadata(string(encoded))}

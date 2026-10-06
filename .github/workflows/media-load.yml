@@ -18,6 +18,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   load:
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: [0, 1]
     runs-on: ubuntu-24.04
     timeout-minutes: 175
     steps:
@@ -35,5 +39,6 @@ jobs:
         run: ./media-load
         env:
           LIVE_CLASS_LOAD_FIXTURE: ${{ secrets.LIVE_CLASS_LOAD_FIXTURE }}
+          LIVE_CLASS_LOAD_SHARD: ${{ matrix.shard }}
           GOMAXPROCS: '4'
           GOMEMLIMIT: 2GiB

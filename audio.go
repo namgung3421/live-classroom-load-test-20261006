@@ -13,6 +13,7 @@ import (
 )
 
 type audioObservation struct {
+ Identity string
  Samples atomic.Uint64
  Errors atomic.Uint64
  Binds atomic.Uint64
@@ -44,6 +45,6 @@ func (p *generatedAudioProvider) NextSample(_ context.Context)(media.Sample,erro
 }
 func audioSnapshots()[]map[string]any{
  result:=[]map[string]any{}
- for i,value:=range audioObservations{result=append(result,map[string]any{"publisher":i+1,"samples":value.Samples.Load(),"errors":value.Errors.Load(),"binds":value.Binds.Load(),"lastAt":value.LastAt.Load()})}
+ for _,value:=range audioObservations{result=append(result,map[string]any{"identity":value.Identity,"samples":value.Samples.Load(),"errors":value.Errors.Load(),"binds":value.Binds.Load(),"lastAt":value.LastAt.Load()})}
  return result
 }
