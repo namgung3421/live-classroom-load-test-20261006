@@ -15,12 +15,14 @@ async function main() {
   const server = http.createServer((_, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><title>Synthetic video fixture</title>'); });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}/`;
-  const chromeProcess = spawn(chrome, ['--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, url], { windowsHide: true, stdio: 'ignore' });
+  const chromeProcess = spawn(chrome, ['--headless=new', '--no-sandbox', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-dev-shm-usage', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, url], { windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+  let chromeDiagnostics='';
+  chromeProcess.stderr.on('data',data=>{chromeDiagnostics=(chromeDiagnostics+data.toString()).slice(-2000);});
   let socket;
   try {
     const activePort = path.join(profile, 'DevToolsActivePort');
-    const deadline = Date.now() + 20000;
-    while (!fs.existsSync(activePort)) { assert.ok(Date.now() < deadline && chromeProcess.exitCode === null, 'Fixture Chrome did not start.'); await delay(100); }
+    const deadline = Date.now() + 60000;
+    while (!fs.existsSync(activePort)) { assert.ok(Date.now() < deadline && chromeProcess.exitCode === null, 'Fixture Chrome did not start: '+chromeDiagnostics); await delay(100); }
     const port = Number(fs.readFileSync(activePort, 'utf8').split(/\r?\n/)[0]);
     const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
     const tab = targets.find(value => value.type === 'page' && value.url === url);

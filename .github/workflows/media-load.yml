@@ -33,7 +33,7 @@ jobs:
         env:
           GOTOOLCHAIN: auto
       - name: Generate synthetic 1080p camera layers using existing Chrome
-        run: node generate-video.cjs
+        run: node generate-video.cjs || node generate-video.cjs
       - name: Send and receive room-scoped synthetic media
         if: ${{ !inputs.build_only }}
         run: ./media-load
