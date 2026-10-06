@@ -1,0 +1,39 @@
+name: Live classroom synthetic media load
+run-name: ${{ inputs.fixture_tag }}
+on:
+  workflow_dispatch:
+    inputs:
+      fixture_tag:
+        description: Unique bounded fixture run label
+        required: true
+        type: string
+      build_only:
+        description: Compile and generate fixture without joining any server
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: live-classroom-load
+  cancel-in-progress: false
+jobs:
+  load:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 175
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Build pinned LiveKit fixture worker
+        run: go mod tidy && go build -o media-load .
+        env:
+          GOTOOLCHAIN: auto
+      - name: Generate synthetic 1080p camera layers using existing Chrome
+        run: node generate-video.cjs
+      - name: Send and receive room-scoped synthetic media
+        if: ${{ !inputs.build_only }}
+        run: ./media-load
+        env:
+          LIVE_CLASS_LOAD_FIXTURE: ${{ secrets.LIVE_CLASS_LOAD_FIXTURE }}
+          GOMAXPROCS: '4'
+          GOMEMLIMIT: 2GiB
