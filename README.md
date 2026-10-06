@@ -13,8 +13,8 @@ Receiver 0 may update its own metadata to expose RTP/RTCP measurements locally.
 Remove this secret and the fixture rooms after the bounded test.
 
 Synthetic publishers send 1920x1080 / 20 fps VP8 camera with 640x360 and 320x180
-simulcast layers, plus the LiveKit CLI 2.18.8 Opus demo. The runner's existing
-Chrome WebCodecs generates these images from canvas; it never captures a camera
-or desktop. Receivers request the teacher's full camera and screen-share layers.
+simulcast layers, plus synthetic 32 kbps Opus tones. The runner's existing
+Chrome WebCodecs generates these images and audio; it never captures a camera,
+microphone or desktop. Receivers request the teacher's full camera and screen-share layers.
 The worker reads real RTP but does not decode the received video; a separate
 teacher browser verifies all student videos by decoding them.

@@ -78,6 +78,26 @@ async function main() {
       const bytes = Buffer.concat(pieces); fs.writeFileSync(path.join(folder, `${name}.ivf`), bytes);
       console.log(JSON.stringify({ layer: name, width, height, fps: 20, frames: chunks.length, bytes: bytes.length }));
     }
+    const audioResult = await call('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(${async function encodeAudio() {
+      const support = await AudioEncoder.isConfigSupported({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 32000 });
+      if (!support.supported) throw new Error('Opus encoding is unavailable.');
+      const chunks = []; let failure;
+      const encoder = new AudioEncoder({ output(chunk) { const bytes = new Uint8Array(chunk.byteLength); chunk.copyTo(bytes); chunks.push(btoa(String.fromCharCode(...bytes))); }, error(error) { failure = error; } });
+      encoder.configure(support.config);
+      for (let frame = 0; frame < 250; frame++) {
+        const samples = new Float32Array(960);
+        for (let i = 0; i < samples.length; i++) { const time = (frame * 960 + i) / 48000; samples[i] = .15 * Math.sin(time * 2 * Math.PI * 440) + .1 * Math.sin(time * 2 * Math.PI * 660); }
+        const audio = new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: 960, numberOfChannels: 1, timestamp: frame * 20000, data: samples });
+        encoder.encode(audio); audio.close();
+        while (encoder.encodeQueueSize > 5 && !failure) await new Promise(resolve => setTimeout(resolve, 5));
+        if (failure) throw failure;
+      }
+      await encoder.flush(); encoder.close(); return chunks;
+    }.toString()})()` });
+    assert.ok(!audioResult.exceptionDetails, audioResult.exceptionDetails?.exception?.description || 'Synthetic audio encoding failed.');
+    const audioChunks = audioResult.result.value; assert.ok(audioChunks.length >= 250);
+    fs.writeFileSync(path.join(folder, 'audio.json'), JSON.stringify(audioChunks));
+    console.log(JSON.stringify({ audio: 'opus', sampleRate: 48000, packets: audioChunks.length, bytes: audioChunks.reduce((sum, value) => sum + Buffer.from(value, 'base64').length, 0) }));
     await call('Browser.close', {}).catch(() => {});
   } finally {
     socket?.close();

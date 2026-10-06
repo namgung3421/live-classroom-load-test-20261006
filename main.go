@@ -4,6 +4,7 @@ package main
 
 import (
  "encoding/json"
+ "encoding/binary"
  "fmt"
  "os"
  "os/signal"
@@ -16,11 +17,11 @@ import (
  "time"
 
  "github.com/go-logr/logr"
- "github.com/livekit/livekit-cli/v2/pkg/provider"
  lksdk "github.com/livekit/server-sdk-go/v2"
  "github.com/livekit/protocol/livekit"
  "github.com/livekit/protocol/logger"
  "github.com/pion/interceptor"
+ "github.com/pion/rtp/codecs"
  rtpstats "github.com/pion/interceptor/pkg/stats"
  "github.com/pion/webrtc/v4"
 )
@@ -43,6 +44,10 @@ type trackState struct {
  LastAt int64 `json:"lastAt"`
  Jitter float64 `json:"jitter"`
  Active bool `json:"active"`
+ Width uint32 `json:"width,omitempty"`
+ Height uint32 `json:"height,omitempty"`
+ lastFrameTimestamp uint32
+ hasFrame bool
 }
 type receiver struct {
  Identity string `json:"identity"`
@@ -90,7 +95,17 @@ func newReceiver(c credential, url string) (*receiver, error) {
      for {
       packet,_,err:=track.ReadRTP()
       if err!=nil{return}
-      r.lock.Lock();state.LastAt=time.Now().UnixMilli();if packet.Marker {state.Frames++};r.lock.Unlock()
+      r.lock.Lock();state.LastAt=time.Now().UnixMilli()
+      if track.Kind()==webrtc.RTPCodecTypeVideo {
+       if packet.Marker&&(!state.hasFrame||int32(packet.Timestamp-state.lastFrameTimestamp)>0){state.Frames++;state.lastFrameTimestamp=packet.Timestamp;state.hasFrame=true}
+       if strings.EqualFold(track.Codec().MimeType,webrtc.MimeTypeVP8){
+        var vp8 codecs.VP8Packet;payload,err:=vp8.Unmarshal(packet.Payload)
+        if err==nil&&vp8.S==1&&vp8.PID==0&&len(payload)>=10&&payload[0]&1==0&&payload[3]==0x9d&&payload[4]==0x01&&payload[5]==0x2a{
+         state.Width=uint32(binary.LittleEndian.Uint16(payload[6:8])&0x3fff);state.Height=uint32(binary.LittleEndian.Uint16(payload[8:10])&0x3fff)
+        }
+       }
+      }
+      r.lock.Unlock()
      }
     }()
    },
@@ -123,9 +138,9 @@ func (r *receiver) snapshot() receiverSnapshot {
 func publisher(c credential,url string)(*lksdk.Room,error){
  room:=lksdk.NewRoom(nil)
  if err:=room.JoinWithToken(url,c.Token,lksdk.WithAutoSubscribe(false));err!=nil{return nil,fmt.Errorf("publisher join failed (%T)",err)}
- audio,err:=provider.CreateAudioLooper()
+ audio,err:=generatedAudio()
  if err!=nil{room.Disconnect();return nil,err}
- audioTrack,err:=lksdk.NewLocalTrack(audio.Codec())
+ audioTrack,err:=lksdk.NewLocalTrack(webrtc.RTPCodecCapability{MimeType:webrtc.MimeTypeOpus,ClockRate:48000,Channels:2})
  observation:=&audioObservation{};audioObservations=append(audioObservations,observation)
  if err==nil{audioTrack.OnBind(func(){observation.Binds.Add(1)});err=audioTrack.StartWrite(&observedAudio{SampleProvider:audio,observation:observation},nil)}
  if err==nil{_,err=room.LocalParticipant.PublishTrack(audioTrack,&lksdk.TrackPublicationOptions{Name:"synthetic audio",Source:livekit.TrackSource_MICROPHONE})}
