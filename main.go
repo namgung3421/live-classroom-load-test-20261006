@@ -115,7 +115,7 @@ func newReceiver(c credential, url string) (*receiver, error) {
   },
  }
  r.Room=lksdk.NewRoom(callback)
- err=r.Room.JoinWithToken(url,c.Token,lksdk.WithAutoSubscribe(true),lksdk.WithInterceptors([]interceptor.Factory{factory}))
+ err=r.Room.JoinWithToken(url,c.Token,lksdk.WithAutoSubscribe(true),lksdk.WithInterceptors([]interceptor.Factory{factory}),lksdk.WithIncludeDefaultInterceptors(true))
  if err!=nil{return nil,fmt.Errorf("receiver join failed (%T)",err)}
  return r,nil
 }
